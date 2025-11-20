@@ -361,14 +361,10 @@ func (gs *GPUDevices) Release(kubeClient kubernetes.Interface, pod *v1.Pod) erro
 	return nil
 }
 
-// FilterNode 过滤节点，检查Pod是否可以被调度到该节点上
-// 参数 pod: 要调度的Pod对象
-// 参数 schedulePolicy: 调度策略
-// 返回状态码、状态消息和错误信息
+// 根据节点上的 vGPU 设备是否满足 Pod 资源请求，判断 Pod 是否可以调度到当前节点
 func (gs *GPUDevices) FilterNode(pod *v1.Pod, schedulePolicy string) (int, string, error) {
-	// 检查是否启用了VGPU功能
+	// 检查是否启用 VGPU 功能
 	if VGPUEnable {
-		// 记录开始过滤Pod的日志（日志级别4）
 		klog.V(4).Infoln("hami-vgpu DeviceSharing starts filtering pods", pod.Name)
 		// 调用checkNodeGPUSharingPredicateAndScore进行过滤和打分
 		// 参数：Pod、设备集合、是否创建副本、调度策略
@@ -377,16 +373,12 @@ func (gs *GPUDevices) FilterNode(pod *v1.Pod, schedulePolicy string) (int, strin
 		if err != nil || !fit {
 			// 如果过滤失败或不满足条件，记录错误日志
 			klog.ErrorS(err, "Failed to fitler node to vgpu task", "pod", pod.Name)
-			// 返回不可调度状态
 			return devices.Unschedulable, "hami-vgpuDeviceSharing error", err
 		}
-		// 将计算出的得分保存到GPUDevices结构体的Score字段中
-		// 这个分数将在后续的NodeOrder阶段使用，避免重复计算
+		// 将计算出的得分保存到 GPUDevices 结构体的 Score 字段中，在后续的 NodeOrder 阶段使用
 		gs.Score = score
-		// 记录过滤成功的日志
 		klog.V(4).Infoln("hami-vgpu DeviceSharing successfully filters pods")
 	}
-	// 如果没有被阻止，返回成功状态
 	return devices.Success, "", nil
 }
 

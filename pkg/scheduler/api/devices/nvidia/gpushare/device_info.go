@@ -154,9 +154,10 @@ func (gs *GPUDevices) Release(kubeClient kubernetes.Interface, pod *v1.Pod) erro
 	return nil
 }
 
+// 根据节点上的 GPU 设备是否满足 Pod 资源请求，判断 Pod 是否可以调度到当前节点
 func (gs *GPUDevices) FilterNode(pod *v1.Pod, schedulePolicy string) (int, string, error) {
 	klog.V(4).Infoln("DeviceSharing:Into FitInPod", pod.Name)
-	if GpuSharingEnable {  // 检查是否启用了 GPU 共享功能
+	if GpuSharingEnable {  // 检查是否启用 GPU 共享功能
 		// 检查节点上的 GPU 内存是否满足 Pod 的需求
 		fit, err := checkNodeGPUSharingPredicate(pod, gs)
 		if err != nil || !fit {
@@ -164,7 +165,7 @@ func (gs *GPUDevices) FilterNode(pod *v1.Pod, schedulePolicy string) (int, strin
 			return devices.Unschedulable, fmt.Sprintf("GpuShare %s", err.Error()), err
 		}
 	}
-	if GpuNumberEnable {  // 检查是否启用了 GPU 数量调度
+	if GpuNumberEnable {  // 检查是否启用 GPU 数量调度
 		// 检查节点上可用的 GPU 卡数量是否满足需求
 		fit, err := checkNodeGPUNumberPredicate(pod, gs)
 		if err != nil || !fit {

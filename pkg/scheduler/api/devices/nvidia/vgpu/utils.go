@@ -548,9 +548,9 @@ func checkNodeGPUSharingPredicateAndScore(pod *v1.Pod, gssnap *GPUDevices, repli
 		return true, []ContainerDevices{}, 0, nil
 	}
 
-	// 从Pod注解中获取volcano.sh/vgpu-mode值，确定Pod请求的GPU共享模式
-	// 如果Pod指定共享模式(如hami-core或mig)，需要与节点的GPU模式一致
-	// 如果Pod没有指定共享模式，则任何节点GPU模式都被视为兼容
+	// 从 Pod 注解中获取 volcano.sh/vgpu-mode 值，确定 Pod 请求的 GPU 共享模式
+	// 如果 Pod 指定共享模式(hami-core 或 mig)，需要与节点的 GPU 模式一致
+	// 如果 Pod 没有指定共享模式，则任何节点 GPU 模式都被视为兼容
 
 	// if the pod specify the sharing mode but the device is not in the same mode, return not fitted;
 	// if the pod does not speficy the sharing mode, any device mode will be fitted
@@ -559,26 +559,24 @@ func checkNodeGPUSharingPredicateAndScore(pod *v1.Pod, gssnap *GPUDevices, repli
 		return false, []ContainerDevices{}, 0, fmt.Errorf("pod required sharing mode %s is not the same as the node mode %s", podSharingMode, gssnap.Mode)
 	}
 
-	// 解析 Pod 容器的资源限制，提取 GPU 数量、内存、百分比和核心请求
+	// 解析 Pod 容器的资源限制，提取 vGPU 数量、内存、百分比和核心请求
 	ctrReq := resourcereqs(pod)
 	if len(ctrReq) == 0 {
 		return true, []ContainerDevices{}, 0, nil
 	}
 
-	// 根据 replicate 参数决定是创建设备状态副本还是直接使用原始设备
 	var gs *GPUDevices
-	// 调用getGPUDeviceSnapShot创建设备快照，避免修改原始状态
-	if replicate { 
+	if replicate {  // 创建设备快照，避免修改原始状态，只用于检查和打分
 		gs = getGPUDeviceSnapShot(gssnap)
-	} else {
+	} else { // 实际分配设备，直接使用原始设备状态
 		gs = gssnap
 	}
 
-	// 遍历每个容器的GPU资源请求，为每个容器分配GPU资源
+	// 遍历每个容器的 vGPU 资源请求，为每个容器分配 vGPU 资源
 	ctrdevs := []ContainerDevices{}
 	for _, val := range ctrReq {
 		devs := []ContainerDevice{}
-		// 如果请求的GPU卡数量超过节点上实际可用的GPU卡数量，返回不可调度状态和相应错误
+		// 如果请求的 vGPU 卡数量超过节点上实际可用的 vGPU 卡数量，返回不可调度状态和相应错误
 		if int(val.Nums) > len(gs.Device) {
 			return false, []ContainerDevices{}, 0, fmt.Errorf("no enough gpu cards on node %s", gs.Name)
 		}
@@ -587,7 +585,7 @@ func checkNodeGPUSharingPredicateAndScore(pod *v1.Pod, gssnap *GPUDevices, repli
 		for i := len(gs.Device) - 1; i >= 0; i-- {
 			klog.V(3).InfoS("Scoring pod request", "memReq", val.Memreq, "memPercentageReq", val.MemPercentagereq, "coresReq", val.Coresreq, "Nums", val.Nums, "Index", i, "ID", gs.Device[i].ID)
 			klog.V(3).InfoS("Current Device", "Index", i, "TotalMemory", gs.Device[i].Memory, "UsedMemory", gs.Device[i].UsedMem, "UsedCores", gs.Device[i].UsedCore, "replicate", replicate)
-		    // 如果当前GPU设备的可共享实例数量小于等于已使用实例数量，跳过该设备
+		    // 如果当前 vGPU 的可共享实例数量小于等于已使用实例数量，跳过
 			if gs.Device[i].Number <= uint(gs.Device[i].UsedNum) {
 				continue
 			}
@@ -598,36 +596,36 @@ func checkNodeGPUSharingPredicateAndScore(pod *v1.Pod, gssnap *GPUDevices, repli
 			// 如果指定内存百分比请求(MemPercentagereq不等于特殊值101)，计算对应的绝对内存值
 			if val.MemPercentagereq != 101 {
 				memreqForCard = uint(float64(gs.Device[i].Memory) * float64(val.MemPercentagereq) / 100.0)
-			} else { // 如果没有百分比请求，直接使用指定的内存请求量Memreq
+			} else { // 如果没有百分比请求，直接使用指定的内存请求量 Memreq
 				memreqForCard = val.Memreq
 			}
-			// 如果设备剩余内存小于请求的内存量，跳过该设备
+			// 如果设备剩余内存小于请求的内存量，跳过
 			if int(gs.Device[i].Memory)-int(gs.Device[i].UsedMem) < int(memreqForCard) {
 				continue
 			}
 
-			// 如果设备已用核心百分比加请求的核心百分比超过100%，跳过该设备
+			// 如果设备已用核心百分比加请求的核心百分比超过100%，跳过
 			if gs.Device[i].UsedCore+val.Coresreq > 100 {
 				continue
 			}
-			// 如果请求100%的核心，且设备已有其他使用者(UsedNum > 0)，跳过该设备
+			// 如果请求 100% 的核心，且设备已有其他使用者(UsedNum > 0)，跳过
 			// Coresreq=100 indicates it want this card exclusively
 			if val.Coresreq == 100 && gs.Device[i].UsedNum > 0 {
 				continue
 			}
-			// 如果设备的核心已完全使用(UsedCore=100)，不允许分配核心请求为0的任务
+			// 如果设备的核心已完全使用(UsedCore=100)，不允许分配核心请求为 0 的任务
 			// You can't allocate core=0 job to an already full GPU
 			if gs.Device[i].UsedCore == 100 && val.Coresreq == 0 {
 				continue
 			}
-			// 根据Pod注解检查类型兼容性，用于 GPU Type 和 GPU UUID 的精准调度能力
+			// 根据 Pod 注解检查类型兼容性，用于 GPU Type 和 GPU UUID 的精准调度能力
 			if !checkType(pod.Annotations, *gs.Device[i], val) {
 				klog.Errorln("failed checktype", gs.Device[i].Type, val.Type)
 				continue
 			}
 
-			// 调用共享模式处理器的TryAddPod方法，尝试将Pod添加到当前设备
-			// 根据节点的共享模式(hami-core或mig)，使用对应的处理器实现不同的资源分配逻辑
+			// 调用共享模式处理器的 TryAddPod 方法，尝试将 Pod 添加到当前设备
+			// 根据节点的共享模式(hami-core或mig)，使用对应的处理器实现不同的逻辑
 			fit, uuid := gs.Sharing.TryAddPod(gs.Device[i], memreqForCard, uint(val.Coresreq))
 			if !fit {
 				klog.V(3).Info(gs.Device[i].ID, "not fit")

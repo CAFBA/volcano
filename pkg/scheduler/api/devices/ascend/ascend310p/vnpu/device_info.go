@@ -161,6 +161,7 @@ func (ns *NPUDevices) HasDeviceRequest(pod *v1.Pod) bool {
 	return false
 }
 
+// 根据节点上的 NPU 设备是否满足 Pod 资源请求，判断 Pod 是否可以调度到当前节点
 func (ns *NPUDevices) FilterNode(pod *v1.Pod, schedulePolicy string) (int, string, error) {
 	if err := ns.preCheckNodePredicate(pod); err != nil {
 		return devices.Error, "preCheckNodePredicate failure", err

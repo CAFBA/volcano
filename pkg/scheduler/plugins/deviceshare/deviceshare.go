@@ -263,7 +263,7 @@ func (dp *deviceSharePlugin) OnSessionOpen(ssn *framework.Session) {
 	// 第一步：初始化需要调度会话信息的设备，对于 vNPU，可能需要调度会话的全局信息
 	initializeDevicesWithSession(ssn)
 
-	// 第二步：注册谓词（过滤）函数，用于判断节点是否适合运行 Pod
+	// 第二步：注册谓词，根据节点上的设备是否满足 Pod 资源请求，判断 Pod 是否可以调度到当前节点
 	ssn.AddPredicateFn(dp.Name(), func(task *api.TaskInfo, node *api.NodeInfo) error {
 		// 创建谓词状态列表，用于收集过滤结果
 		predicateStatus := make([]*api.Status, 0)
@@ -274,8 +274,7 @@ func (dp *deviceSharePlugin) OnSessionOpen(ssn *framework.Session) {
 			if dev, ok := node.Others[val].(api.Devices); ok {
 				// 检查设备对象是否为 nil
 				if reflect.ValueOf(dev).IsNil() {
-					// 如果设备为 nil，但 Pod 请求了该设备，则返回不可调度
-					// 这表示节点上未初始化该类型的设备
+					// 如果设备为 nil，表示节点上未初始化该类型的设备，但 Pod 请求该设备，则返回不可调度
 					if dev == nil || dev.HasDeviceRequest(task.Pod) {
 						predicateStatus = append(predicateStatus, &api.Status{
 							Code:   devices.Unschedulable,
@@ -284,14 +283,13 @@ func (dp *deviceSharePlugin) OnSessionOpen(ssn *framework.Session) {
 						})
 						return api.NewFitErrWithStatus(task, node, predicateStatus...)
 					}
-					// Pod 没有请求该设备，跳过该设备的检查
 					klog.V(4).Infof("pod %s/%s did not request device %s on %s, skipping it",
 					    task.Pod.Namespace, task.Pod.Name, val, node.Name)
 					continue
 				}
 
 				// dev.FilterNode 是接口方法，具体实现由不同设备类型决定
-				// FilterNode 根据要调度的 Pod 对象和调度策略进行过滤，检查 Pod 是否可以在该节点上运行
+				// FilterNode 根据要调度的 Pod 对象和调度策略进行过滤，判断 Pod 是否可以调度到当前节点
 				code, msg, err := dev.FilterNode(task.Pod, dp.schedulePolicy)
 
 				// 如果过滤过程中发生错误，返回不可调度
@@ -318,13 +316,11 @@ func (dp *deviceSharePlugin) OnSessionOpen(ssn *framework.Session) {
 		klog.V(4).Infof("checkDevices predicates Task <%s/%s> on Node <%s>: fit ",
 			task.Namespace, task.Name, node.Name)
 
-		// 返回 nil 表示谓词检查通过
 		return nil
 	})
 
-	// 第三步：注册节点打分函数，用于对节点进行排序
+	// 第三步：注册节点打分
 	ssn.AddNodeOrderFn(dp.Name(), func(task *api.TaskInfo, node *api.NodeInfo) (float64, error) {
-		// 初始化节点得分
 		nodeScore := float64(0)
 
 		// 只有在调度权重大于 0 时才计算设备得分
